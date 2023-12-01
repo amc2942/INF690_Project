@@ -23,7 +23,9 @@ library(ggplot2)
 
 ################################################################################
 #################### PROCESS RASTER FILES ######################################
+#data_dir = 'D:/LANDIS-4FRI/DataStatusQuo/'
 data_dir = 'D:/LANDIS-4FRI/Project-Arizona-4FRI-master_V6/Input_files/'
+cutoff_year = 55
 
 biomass_files = dir(paste0(data_dir,'outputs/biomass'),full.names = T)
 biomass_files = data.table(Filename=biomass_files)
@@ -164,8 +166,15 @@ normalize_between_2sd <- function(data) {
 
 total_biomass = normalize_between_2sd(total_biomass)
 ponderosa_biomass = normalize_between_2sd(ponderosa_biomass)
-years_since_disturbance = normalize_between_2sd(years_since_disturbance)
 old_pondo = normalize_between_2sd(old_pondo)
+
+# Apply a different normalization for years since disturbance, clipping the additional benefits at 20 years
+data_vals = values(years_since_disturbance)
+clipped_data = pmin(data_vals, 20)
+normalized_vals = clipped_data / 20
+values(years_since_disturbance) = normalized_vals
+
+
 
 # Summarizing data
 #landis_data_mean <- calc(landis_data, mean, na.rm = TRUE)
@@ -193,7 +202,7 @@ calculate_suitability_mso <- function(ponderosa_biomass, old_ponderosa_biomass, 
   #weight_canopy_mso <- 0.35
   weight_total_biomass_mso <- 0.35
   weight_biomass_age5 <- 0.35
-  weight_time_since_dist_mso <- -0.2
+  weight_time_since_dist_mso <- 0.2
   # Calculate suitability score as weighted sum of selected variables 
   suitability_score_mso <- ((weight_ponderosa_mso * ponderosa_biomass) +
                           (weight_biomass_age5 * old_ponderosa_biomass) +
@@ -213,22 +222,23 @@ values(mso_suitability_raster_stack) = calculate_suitability_mso(values(ponderos
                                                                  values(years_since_disturbance))
 
 # Write raster stack to disk
-raster::writeRaster(mso_suitability_raster_stack,'mso_suitability_raster_stack.tif')
+raster::writeRaster(mso_suitability_raster_stack, 'mso_suitability_raster_stack.tif',overwrite=T)
 
 # Visualize time series of mso habitat
-animate_raster_stack(mso_suitability_raster_stack,'mso_suitability.gif')
+animate_raster_stack(mso_suitability_raster_stack, 'mso_suitability.gif')
 
 # Get trend
 mso_suitability_simple_sum = apply(values(mso_suitability_raster_stack),FUN=sum,MARGIN=2)
-plot(seq(1,45),mso_suitability_simple_sum[1:45],type = 'l')
+plot(seq(1,cutoff_year),mso_suitability_simple_sum[1:cutoff_year],type = 'l')
 
 # Make up a "Good habitat" threshold using 75th percentile of habitat quality in year 1
-thresh = quantile((values(mso_suitability_raster_stack[[1]])),na.rm = T,probs=c(.75))[[1]]
+year1_suitability_values = values(mso_suitability_raster_stack[[1]])
+thresh = quantile(year1_suitability_values[year1_suitability_values>0],na.rm = T,probs=c(.75))[[1]]
 # Add up area greater than threshold in each year
 mso_suitable_area = apply(values(mso_suitability_raster_stack>=thresh),FUN=sum,MARGIN=2)
-mso_suitable_area = data.table(Year = seq(1:55), MSOSuitableArea=mso_suitable_area)
+mso_suitable_area = data.table(Year = seq(1:length(mso_suitable_area)), MSOSuitableArea=mso_suitable_area)
 
-ggplot(mso_suitable_area[1:45],aes(Year,MSOSuitableArea)) +
+ggplot(mso_suitable_area[1:cutoff_year],aes(Year,MSOSuitableArea)) +
   geom_line() +
   labs(title = 'Suitable Habitat for Mexican Spotted Owl',
         subtitle = 'Under Fast Implementation of 4FRI') +
