@@ -10,18 +10,168 @@
 # Necessary packages
 library(stats)
 library(rstudioapi)
-library(tidyverse)
+#library(tidyverse)
 library(raster)
-library(plotly)
+#library(plotly)
+library(terra)
+library(data.table)
+library(animation)
+library(ggplot2)
 
 # Path to where data would be stored
-setwd("C:\Users\andre\OneDrive\Documents\GitHub\INF690_Project")
+#setwd("C:\Users\andre\OneDrive\Documents\GitHub\INF690_Project")
 
 ################################################################################
+#################### PROCESS RASTER FILES ######################################
+data_dir = 'D:/LANDIS-4FRI/Project-Arizona-4FRI-master_V6/Input_files/'
+
+biomass_files = dir(paste0(data_dir,'outputs/biomass'),full.names = T)
+biomass_files = data.table(Filename=biomass_files)
+
+get_biomass_year = function(filename){
+  noext = strsplit(filename,'.',fixed=T)[[1]][1] # Remove extension
+  split = strsplit(noext,'-')[[1]] # Split on hyphens
+  year = split[length(split)] # Get the last item, which should be the year
+  return(year)
+}
+
+get_biomass_species = function(filename){
+  noext = strsplit(filename,'.',fixed=T)[[1]][1] # Remove extension
+  split = strsplit(noext,'-')[[1]] # Split on hyphens
+  species = split[length(split)-1] # Get second to last item
+  return(species)
+}
+
+biomass_files$Year = as.integer(sapply(biomass_files$Filename,get_biomass_year))
+biomass_files$Species = sapply(biomass_files$Filename,get_biomass_species)
+biomass_files = biomass_files[order(Year,Species),]
+
+total_biomass = raster::stack(biomass_files[Species=='TotalBiomass',Filename])
+ponderosa_biomass = raster::stack(biomass_files[Species=='PinuPond',Filename])
+
+
+
+################## BIOMASS BY AGE #########################################
+biomass_by_age_files = dir(paste0(data_dir,'outputs/spp-biomass-by-age'),full.names = T)
+biomass_by_age_files = data.table(Filename=biomass_by_age_files)
+
+get_biomass_by_age_age = function(filename){
+  noext = strsplit(filename,'.',fixed=T)[[1]][1] # Remove extension
+  split = strsplit(noext,'-')[[1]] # Split on hyphens
+  species = split[length(split)-1] # Get second to last item
+  return(species)
+}
+
+get_biomass_by_age_species = function(filename){
+  noext = strsplit(basename(filename),'.',fixed=T)[[1]][1] # Remove extension
+  split = strsplit(noext,'-')[[1]] # Split on hyphens
+  species = split[length(split)-2] # Get third to last item
+  return(species)
+}
+
+
+biomass_by_age_files$Year = as.integer(sapply(biomass_by_age_files$Filename,get_biomass_year))
+biomass_by_age_files$Species = sapply(biomass_by_age_files$Filename,get_biomass_by_age_species)
+biomass_by_age_files$Age = sapply(biomass_by_age_files$Filename,get_biomass_by_age_age)
+biomass_by_age_files = biomass_by_age_files[order(Year,Age,Species),]
+
+old_pondo = raster::stack(biomass_by_age_files[Species=="PinuPond" & Age == 'ageclass5',Filename])
+
+############################# TIME SINCE DISTURBANCE ######################################
+fire_files = dir(paste0(data_dir,'fire'),full.names = T,pattern = 'severity')
+harvest_files = dir(paste0(data_dir,'harvest'),full.names=T,pattern = 'biomass-removed')
+disturbance_files = data.table(FireFilename=fire_files,HarvestFilename=harvest_files)
+
+disturbance_files$Year = as.integer(sapply(disturbance_files$FireFilename,get_biomass_year))
+disturbance_files = disturbance_files[order(Year),]
+
+# Get time since last fire in year 0
+last_disturbance = rast(paste0(data_dir,'DFFS-output/TimeOfLastFire-1.img'))
+
+first = T
+for (year in disturbance_files$Year){
+  # Read the fire severity and harvest intensity rasters for this year
+  fire_rast = rast(disturbance_files[Year==year,FireFilename])
+  harvest_rast = rast(disturbance_files[Year==year,HarvestFilename])
+
+  # If there was any fire OR harvest, set "disturbed" to 1
+  disturbed = fire_rast + harvest_rast
+  disturbed = disturbed > 1
+
+  # Convert to a raster that stores the year of disturbance
+  disturbed = disturbed * year
+  disturbed[disturbed==0] = NaN
+
+  # Get years since last disturbance relative to this year
+  last_disturbance = max(last_disturbance,disturbed,na.rm = T)
+
+  if (first) {
+    years_since_disturbance = year - last_disturbance
+    first = F
+  }
+  else{
+    years_since_disturbance = c(years_since_disturbance,year-last_disturbance)
+  }
+}
 
 
 
 
+############################# RASTER PROCESSING ###################################
+# Function to plot each layer in the stack
+plot_raster <- function(layer) {
+  plot(layer, main = "")
+}
+
+animate_raster_stack = function(raster_stack,output_gif_name=NULL,interval = .5){
+  # Create animation
+  if (!is.null(output_gif_name)){
+    saveGIF({
+      for (i in 1:dim(total_biomass)[3]) {
+        plot_raster(raster_stack[[i]])
+        title(main = paste("Year:", i))
+        Sys.sleep(interval)  # Adjust sleep duration as needed
+      }
+    }, interval = interval, movie.name = output_gif_name)
+  }
+  else{
+    for (i in 1:dim(total_biomass)[3]) {
+      plot_raster(raster_stack[[i]])
+      title(main = paste("Year:", i))
+      Sys.sleep(interval)  # Adjust sleep duration as needed
+    }
+  }
+}
+
+#animate_raster_stack(total_biomass,'Total_biomass_test.gif')
+#animate_raster_stack(years_since_disturbance,'Years_since_disturbance.gif')
+
+# Normalize the data
+normalize_between_2sd <- function(data) {
+  # Scale to a value between 0 and 1, clip extreme values to either 0 or 1
+  data_vals = values(data)
+
+  mean_val <- mean(data_vals)
+  sd_val <- sd(data_vals)
+
+  normalized_data <- base::scale(data_vals, center = rep(mean_val,dim(data_vals)[2]), scale = rep(sd_val * 2,dim(data_vals)[2]))
+  normalized_data = pmin(pmax(normalized_data, 0), 1)
+
+  values(data) = normalized_data
+
+  return(data)
+}
+
+total_biomass = normalize_between_2sd(total_biomass)
+ponderosa_biomass = normalize_between_2sd(ponderosa_biomass)
+years_since_disturbance = normalize_between_2sd(years_since_disturbance)
+old_pondo = normalize_between_2sd(old_pondo)
+
+# Summarizing data
+#landis_data_mean <- calc(landis_data, mean, na.rm = TRUE)
+
+# Consider neighboring cells in 3x3 window
+#landis_data_spatial_mean <- focal(landis_data_mean, w = matrix(1, 3, 3), fun = mean, na.rm = TRUE)
 
 ################################################################################
 ################################################################################
@@ -31,57 +181,63 @@ setwd("C:\Users\andre\OneDrive\Documents\GitHub\INF690_Project")
 
 
 
-# NOTE: None of this code actually runs right now, it assumes we are pulling the raster data from our directory, loading that into our environment, and using that to then run the model. This is really just to show proof of concept, on how we would hypothetically create a model, using the Mexican Spotted Owl as our example system. 
-
-
-
-################################################################################
-# Data Preprocessing (Loading in data from raster files)
-
-# Reading LANDIS-II Outputs: Assumes .tif raster files
-raster_list <- list.files(pattern = "*.tif", full.names = TRUE)
-landis_data <- stack(raster_list)
-
-# Summarizing data
-landis_data_mean <- calc(landis_data, mean, na.rm = TRUE)
-
-# Consider neighboring cells in 3x3 window
-landis_data_spatial_mean <- focal(landis_data_mean, w = matrix(1, 3, 3), fun = mean, na.rm = TRUE)
-
-
-
-
-
 ################################################################################
 # Feature Selection, starting with Mexican Spotted Owl (mso)
-# P. Ponderosa dominated, Canopy cover, basal area, time since disturbance
 
-# Names should be adjusted to match variable names of landis outputs
-mso_features <- landis_data[c("ponderosa_distribution", "canopy_cover", "basal_area", "time_since_disturbance")]
-
+##### DEFINE MODEL ######
 # Creating a function that calculates habitat suitability based on the above features: 
 # We would need to adjust variable names to match specific outputs
-calculate_suitability_mso <- function(ponderosa_distribution, canopy_cover, basal_area, time_since_disturbance) {
+calculate_suitability_mso <- function(ponderosa_biomass, old_ponderosa_biomass, total_biomass, time_since_disturbance) {
   # Assign relative variable weights based on importance
-  weight_ponderosa_mso <- 0.1
-  weight_canopy_mso <- 0.35
-  weight_basal_area_mso <- 0.35
+  weight_ponderosa_mso <- 0.1 # Percent of biomass that is ponderosa
+  #weight_canopy_mso <- 0.35
+  weight_total_biomass_mso <- 0.35
+  weight_biomass_age5 <- 0.35
   weight_time_since_dist_mso <- -0.2
   # Calculate suitability score as weighted sum of selected variables 
-  suitability_score_mso <- ((weight_ponderosa * ponderosa_distribution) + 
-                          (weight_canopy * canopy_cover) + 
-                          (weight_basal_area * basal_area) + 
-                          (weight_time_since_dist * time_since_disturbance))
+  suitability_score_mso <- ((weight_ponderosa_mso * ponderosa_biomass) +
+                          (weight_biomass_age5 * old_ponderosa_biomass) +
+                          (weight_total_biomass_mso * total_biomass) +
+                          (weight_time_since_dist_mso * time_since_disturbance))
   return(suitability_score_mso)
 }
 
-# And now, apply the function to calculate the suitability for each grid cell:
-landis_data$suitability_score_mso <- calculate_suitability_mso(
-  landis_data$ponderosa_distribution,
-  landis_data$canopy_cover,
-  landis_data$basal_area, 
-  landis_data$time_since_disturbance
-)
+##### APPLY MODEL ######
+# Initialize a raster with matching properties
+mso_suitability_raster_stack = total_biomass
+
+# Fill values using suitiability function and input data
+values(mso_suitability_raster_stack) = calculate_suitability_mso(values(ponderosa_biomass),
+                                                                 values(old_pondo),
+                                                                 values(total_biomass),
+                                                                 values(years_since_disturbance))
+
+# Write raster stack to disk
+raster::writeRaster(mso_suitability_raster_stack,'mso_suitability_raster_stack.tif')
+
+# Visualize time series of mso habitat
+animate_raster_stack(mso_suitability_raster_stack,'mso_suitability.gif')
+
+# Get trend
+mso_suitability_simple_sum = apply(values(mso_suitability_raster_stack),FUN=sum,MARGIN=2)
+plot(seq(1,45),mso_suitability_simple_sum[1:45],type = 'l')
+
+# Make up a "Good habitat" threshold using 75th percentile of habitat quality in year 1
+thresh = quantile((values(mso_suitability_raster_stack[[1]])),na.rm = T,probs=c(.75))[[1]]
+# Add up area greater than threshold in each year
+mso_suitable_area = apply(values(mso_suitability_raster_stack>=thresh),FUN=sum,MARGIN=2)
+mso_suitable_area = data.table(Year = seq(1:55), MSOSuitableArea=mso_suitable_area)
+
+ggplot(mso_suitable_area[1:45],aes(Year,MSOSuitableArea)) +
+  geom_line() +
+  labs(title = 'Suitable Habitat for Mexican Spotted Owl',
+        subtitle = 'Under Fast Implementation of 4FRI') +
+  ylab('Hectares of suitable habitat') +
+  xlab('Year of Simulation')
+
+ggsave('mso_suitability_trend.png')
+
+####################### MORE STATS AND MODELLING ######################
 
 # Splitting into training and testing data for Cross-validation
 # This is done temporally, training on 80% of observations and testing on 20%. If it makes more sense, we can also decide to adjust this to a spatial split, reducing the raster into individual grid cells and training on 80% and testing on 20% at any specific time step.
