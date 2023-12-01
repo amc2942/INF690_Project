@@ -223,7 +223,8 @@ mso_suitability_simple_sum = apply(values(mso_suitability_raster_stack),FUN=sum,
 plot(seq(1,45),mso_suitability_simple_sum[1:45],type = 'l')
 
 # Make up a "Good habitat" threshold using 75th percentile of habitat quality in year 1
-thresh = quantile((values(mso_suitability_raster_stack[[1]])),na.rm = T,probs=c(.75))[[1]]
+year1_suitability_values = values(mso_suitability_raster_stack[[1]])
+thresh = quantile(year1_suitability_values[year1_suitability_values>0],na.rm = T,probs=c(.75))[[1]]
 # Add up area greater than threshold in each year
 mso_suitable_area = apply(values(mso_suitability_raster_stack>=thresh),FUN=sum,MARGIN=2)
 mso_suitable_area = data.table(Year = seq(1:55), MSOSuitableArea=mso_suitable_area)
