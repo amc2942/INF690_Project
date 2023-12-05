@@ -198,7 +198,7 @@ values(years_since_disturbance) = normalized_vals
 # We would need to adjust variable names to match specific outputs
 calculate_suitability_mso <- function(ponderosa_biomass, old_ponderosa_biomass, total_biomass, time_since_disturbance) {
   # Assign relative variable weights based on importance
-  weight_ponderosa_mso <- 0.1 # Percent of biomass that is ponderosa
+  weight_ponderosa_mso <- 0.1 # Total biomass that is ponderosa
   #weight_canopy_mso <- 0.35
   weight_total_biomass_mso <- 0.35
   weight_biomass_age5 <- 0.35
