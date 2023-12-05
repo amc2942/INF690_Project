@@ -18,8 +18,6 @@ library(data.table)
 library(animation)
 library(ggplot2)
 
-# Path to where data would be stored
-#setwd("C:\Users\andre\OneDrive\Documents\GitHub\INF690_Project")
 
 ################################################################################
 #################### PROCESS RASTER FILES ######################################
@@ -176,11 +174,6 @@ values(years_since_disturbance) = normalized_vals
 
 
 
-# Summarizing data
-#landis_data_mean <- calc(landis_data, mean, na.rm = TRUE)
-
-# Consider neighboring cells in 3x3 window
-#landis_data_spatial_mean <- focal(landis_data_mean, w = matrix(1, 3, 3), fun = mean, na.rm = TRUE)
 
 ################################################################################
 ################################################################################
@@ -199,7 +192,6 @@ values(years_since_disturbance) = normalized_vals
 calculate_suitability_mso <- function(ponderosa_biomass, old_ponderosa_biomass, total_biomass, time_since_disturbance) {
   # Assign relative variable weights based on importance
   weight_ponderosa_mso <- 0.1 # Total biomass that is ponderosa
-  #weight_canopy_mso <- 0.35
   weight_total_biomass_mso <- 0.35
   weight_biomass_age5 <- 0.35
   weight_time_since_dist_mso <- 0.2
